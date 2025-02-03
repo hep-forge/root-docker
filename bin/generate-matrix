@@ -1,0 +1,138 @@
+#! /usr/bin/env python3
+
+import os
+import json
+import re
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate a build matrix for Docker builds.")
+    parser.add_argument(
+        "--linux",
+        action="store_true",
+        help="Include Linux targets (default)."
+    )
+    parser.add_argument(
+        "--macos",
+        action="store_true",
+        help="Include macOS targets."
+    )
+    parser.add_argument(
+        "--windows",
+        action="store_true",
+        help="Include Windows targets."
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Include all targets (Linux, macOS, Windows)."
+    )
+    parser.add_argument(
+        "--arch",
+        type=str,
+        help="Filter by architecture (e.g., arm64, amd64)."
+    )
+    parser.add_argument(
+        "version",
+        nargs='?',
+        help="Specific version or package:version to consider (e.g., 6.34.02 or root:6.34.92)."
+    )
+    return parser.parse_args()
+
+def should_include_target(os_name, args):
+    if args.all:
+        return True
+    if os_name != "macos" and os_name != "windows" and args.linux:
+        return True
+    if os_name == "macos" and args.macos:
+        return True
+    if os_name == "windows" and args.windows:
+        return True
+    return False
+
+def matches_version(package_name, package_version, args):
+    if args.version:
+        # Check if the version matches a specific package version or just a version
+        if ':' in args.version:
+            specified_package, specified_version = args.version.split(':')
+            if specified_package == package_name and specified_version == package_version:
+                return True
+        else:
+            if package_version == args.version:
+                return True
+    return False
+
+def matches_arch(arch, args):
+    if args.arch and arch != args.arch:
+        return False
+    return True
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    # Default to Linux if no specific flag is provided
+    if not (args.linux or args.macos or args.windows):
+        args.all = True
+
+    matrix = []
+    template_dir = os.path.join(os.getcwd(), 'recipe')
+    if not os.path.exists(template_dir):
+        raise FileNotFoundError(f"Templates directory not found: {template_dir}")
+
+    # Walk through the directory structure inside './recipe'
+    for package_name in os.listdir(template_dir):
+        if "matrix.yml" == package_name:
+            continue
+
+        package_path = os.path.join(template_dir, package_name)
+        if os.path.isdir(package_path):
+
+            # Get the version directories under each package
+            for package_version in os.listdir(package_path):
+                package_version_path = os.path.join(package_path, package_version)
+                if os.path.isdir(package_version_path):
+
+                    # Get the OS directories (e.g., linux, macos, windows)
+                    for os_name in os.listdir(package_version_path):
+                        if not should_include_target(os_name, args):
+                            continue
+
+                        os_path = os.path.join(package_version_path, os_name)
+                        if os.path.isdir(os_path):
+
+                            # Look for version subdirectories for the OS (e.g., 22.04, 24.04)
+                            for os_version in os.listdir(os_path):
+                                os_version_path = os.path.join(os_path, os_version)
+                                if os.path.isdir(os_version_path):
+
+                                    # Look for architecture directories under the os_version directory (like amd64, arm64)
+                                    for dockerfile in os.listdir(os_version_path):
+                                        if "Dockerfile.packages" == dockerfile:
+                                            continue
+
+                                        pattern = r"Dockerfile\.(?P<arch>\w+)$"
+                                        match = re.search(pattern, dockerfile)
+                                        if match:
+                                            arch = match.group("arch")
+                                        elif "Dockerfile" == dockerfile:
+                                            arch = "amd64"
+
+                                        # Valid matrix entry found
+                                        if arch is None:
+                                            continue
+
+                                        # Filter based on version and architecture
+                                        if not matches_version(package_name, package_version, args):
+                                            continue
+                                        if not matches_arch(arch, args):
+                                            continue
+
+                                        matrix.append({
+                                            'package': {'name': package_name, 'version': package_version},
+                                            'os': {'name': os_name, 'version': os_version},
+                                            'platform': {'arch': arch}, 'skip': False
+                                        })
+
+    if not matrix: matrix.append({"skip": True})
+
+    print(json.dumps(matrix, indent=2))

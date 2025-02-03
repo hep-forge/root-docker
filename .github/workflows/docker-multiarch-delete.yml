@@ -1,0 +1,129 @@
+name: Delete Images
+
+
+on:
+  delete:
+    tags:
+      - '*'
+
+jobs:
+  setup-matrix:
+    name: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+
+      - name: Print GitHub Context as JSON
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: |
+          echo "$GITHUB_CONTEXT"
+
+      - name: Print Environment
+        run: |
+          env
+
+      - name: Setup matrix combinations
+        id: setup-matrix-combinations
+        run: |
+
+          GITHUB_REF=${{ github.event.ref }}
+          generate_matrix() {
+            local os_type=$1
+            MATRIX_COMBINATIONS="$(bin/generate-matrix --$os_type ${GITHUB_REF#refs/tags/} | jq -c .)"
+            echo "matrix-${os_type}-combinations={\"include\":${MATRIX_COMBINATIONS}}" >> $GITHUB_OUTPUT
+          }
+
+          generate_matrix "linux"
+          generate_matrix "macos"
+          generate_matrix "windows"
+          cat $GITHUB_OUTPUT
+
+    outputs:
+      matrix-linux-combinations: ${{ steps.setup-matrix-combinations.outputs.matrix-linux-combinations }}
+      matrix-macos-combinations: ${{ steps.setup-matrix-combinations.outputs.matrix-macos-combinations }}
+      matrix-windows-combinations: ${{ steps.setup-matrix-combinations.outputs.matrix-windows-combinations }}
+
+  rmi-linux-images:
+    name: linux
+    needs: setup-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix-linux-combinations) }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      if: ${{ matrix.skip != true }}
+
+    - name: Log in to Docker
+      uses: docker/login-action@v2
+      if: ${{ matrix.skip != true }}
+      with:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PAT }}
+
+    - name: Delete Docker Image
+      if: ${{ github.event_name == 'delete' && matrix.skip != true }}
+      run: |
+        docker rmi "${{ vars.DOCKER_USERNAME }}/${{ matrix.package.name }}:${{ matrix.package.version }}-${{ matrix.os.name }}${{ matrix.os.version }}-${{ matrix.platform.arch}}" || echo "Image not found, it may already be deleted."
+        docker rmi "${{ vars.DOCKER_USERNAME }}/${{ matrix.package.name }}:${{ matrix.package.version }}-${{ matrix.os.name }}${{ matrix.os.version }}" || echo "Image not found, it may already be deleted."
+
+  rmi-macos-images:
+    name: macos
+    needs: setup-matrix
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix-macos-combinations) }}
+
+    steps:
+    - name: Checkout Repository
+      if: ${{ matrix.skip != true }}
+      uses: actions/checkout@v3
+
+    - name: Log in to Docker
+      uses: docker/login-action@v2
+      if: ${{ matrix.skip != true }}
+      with:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PAT }}
+
+    - name: Delete Docker Image
+      if: ${{ github.event_name == 'delete' }}
+      run: |
+        docker rmi "${{ vars.DOCKER_USERNAME }}/${{ matrix.package.name }}:${{ matrix.package.version }}-${{ matrix.os.name }}${{ matrix.os.version }}-${{ matrix.platform.arch}}" || echo "Image not found, it may already be deleted."
+        docker rmi "${{ vars.DOCKER_USERNAME }}/${{ matrix.package.name }}:${{ matrix.package.version }}-${{ matrix.os.name }}${{ matrix.os.version }}" || echo "Image not found, it may already be deleted."
+
+  rmi-windows-images:
+    name: windows
+    needs: setup-matrix
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix-windows-combinations) }}
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+      if: ${{ matrix.skip != true }}
+
+    - name: Log in to Docker
+      uses: docker/login-action@v2
+      if: ${{ matrix.skip != true }}
+      with:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PAT }}
+
+    - name: Delete Docker Image
+      if: ${{ github.event_name == 'delete' && matrix.skip != true }}
+      run: |
+        docker rmi "${{ vars.DOCKER_USERNAME }}/${{ matrix.package.name }}:${{ matrix.package.version }}-${{ matrix.os.name }}${{ matrix.os.version }}-${{ matrix.platform.arch}}" || echo "Image not found, it may already be deleted."
+        docker rmi "${{ vars.DOCKER_USERNAME }}/${{ matrix.package.name }}:${{ matrix.package.version }}-${{ matrix.os.name }}${{ matrix.os.version }}" || echo "Image not found, it may already be deleted."
