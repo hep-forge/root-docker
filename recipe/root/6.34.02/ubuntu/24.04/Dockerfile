@@ -6,7 +6,7 @@ FROM ${OS_NAME}:${OS_VERSION}
 ENV LANG=C.UTF-8
 ENV DEBIAN_FRONTEND=noninteractive
 
-ENV ROOTSYS=/opt/root
+ENV ROOTSYS=/usr/local
 ENV PATH=$ROOTSYS/bin:${PATH:-}
 ENV PYTHONPATH=$ROOTSYS/lib:${PYTHONPATH:-}
 ENV CLING_STANDARD_PCH=none
@@ -25,13 +25,12 @@ RUN apt-get update -qq \
     && apt-get -y install $(cat /opt/Dockerfile.packages) \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/root-project/root.git root-src \
-    && cd root-src && git checkout v$(echo "$PACKAGE_VERSION" | sed 's/\./-/g') \
+RUN git clone https://github.com/root-project/root.git root \
+    && cd root && git checkout v$(echo "$PACKAGE_VERSION" | sed 's/\./-/g') \
     && mkdir /opt/root-build && cd /opt/root-build \
-    && cmake /opt/root-src -DCMAKE_INSTALL_PREFIX=${ROOTSYS} \
-    && make -j$(nproc) \
-    && make install \
-    && rm -rf /opt/root-src /opt/root-build
+    && cmake /opt/root && make -j$(nproc) && make install \
+    && rm -rf /opt/root /opt/root-build
 
 # Set default command to run ROOT
 CMD ["root", "-b"]
+
